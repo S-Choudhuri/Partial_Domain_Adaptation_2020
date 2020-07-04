@@ -23,28 +23,28 @@ class DataLoader(data.Dataset):
 		return imgs, labels
 
 	def pil_loader(path):
-	    # Return the RGB variant of input image
-	    with open(path, 'rb') as f:
-	        with Image.open(f) as img:
-	            return img.convert('RGB')
+		# Return the RGB variant of input image
+		with open(path, 'rb') as f:
+			with Image.open(f) as img:
+				return img.convert('RGB')
 
 	def data_loader(self, filepath, inp_dims):
-	    # Load images and corresponding labels from the text file, stack them in numpy arrays and return
-	    if not os.path.isfile(filepath):
-	        print("File path {} does not exist. Exiting...".format(filepath))
-	        sys.exit() 
-	    img = []
-	    label = []
-	    with open(filepath) as fp:
-	        for line in fp:
-	            token = line.split()
-	            i = pil_loader(token[0])
-	            i = i.resize((inp_dims[0], inp_dims[1]), Image.ANTIALIAS)
-	            img.append(np.array(i))
-	            label.append(int(token[1]))
-	    img = np.array(img)
-	    label = np.array(label)
-	    return img, label
+		# Load images and corresponding labels from the text file, stack them in numpy arrays and return
+		if not os.path.isfile(filepath):
+			print("File path {} does not exist. Exiting...".format(filepath))
+			sys.exit() 
+		img = []
+		label = []
+		with open(filepath) as fp:
+			for line in fp:
+				token = line.split()
+				i = pil_loader(token[0])
+				i = i.resize((inp_dims[0], inp_dims[1]), Image.ANTIALIAS)
+				img.append(np.array(i))
+				label.append(int(token[1]))
+		img = np.array(img)
+		label = np.array(label)
+		return img, label
 
 	def __len__(self):
 		return self.len_data
