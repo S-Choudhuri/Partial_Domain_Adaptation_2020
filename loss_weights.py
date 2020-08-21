@@ -1,4 +1,6 @@
 import numpy as np
+import torch
+import torch.nn as nn
 
 def weight_comp(y):
     cw = np.sum(y, axis = 0)
