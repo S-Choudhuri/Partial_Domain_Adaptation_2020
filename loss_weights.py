@@ -52,3 +52,9 @@ def DiffLoss(x, recon_x):
     diff_loss = torch.mean((x_l2.t().mm(recon_x_l2)).pow(2))
     
     return diff_loss
+
+def WLoss(source, target):
+    
+    loss = -torch.log(source).sum().mean() - torch.log(1 - target).sum().mean()
+    
+    return loss
