@@ -94,8 +94,14 @@ class DSN(nn.Module):
 
         self.shared_decoder_conv.add_module('relu_sd5_u', nn.Upsample(scale_factor=2))
 
-        self.shared_decoder_conv.add_module('conv_sd6', nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3,
+        self.shared_decoder_conv.add_module('conv_sd6', nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3,
                                                                   padding=1))
+
+        self.shared_decoder_conv.add_module('relu_sd6_u', nn.Upsample(scale_factor=2))
+
+        self.shared_decoder_conv.add_module('conv_sd7', nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3,
+                                                                  padding=1))
+        #self.shared_decoder_conv.add_module('relu_sd6_u', nn.Upsample(scale_factor=2))
 
 
     def forward(self, input_data, mode, rec_scheme, p=0.0):
@@ -142,7 +148,7 @@ class DSN(nn.Module):
             union_code = private_code
 
         rec_vec = self.shared_decoder_fc(union_code)
-        rec_vec = rec_vec.view(-1, 3, 16, 16)
+        rec_vec = rec_vec.view(-1, 3, 14, 14)
         rec_code = self.shared_decoder_conv(rec_vec)
         result.append(rec_code)
 
