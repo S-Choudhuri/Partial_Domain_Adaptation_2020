@@ -16,6 +16,7 @@ from model import *
 from optimizer import *
 from data_loader import *
 from loss_cal import *
+from functions import *
 
 os.environ['PYTHONHASHSEED']=str(SEED)
 np.random.seed(SEED)
@@ -47,11 +48,9 @@ transforms = transforms.Compose([
                     std=[0.5, 0.5, 0.5] )
     ])
 
-source_data = torchvision.datasets.ImageFolder
-(root=source_data_path,transform=transforms)
+source_data = torchvision.datasets.ImageFolder(root=source_data_path,transform=transforms)
 
-target_data = torchvision.datasets.ImageFolder
-(root=target_data_path,transform=transforms)
+target_data = torchvision.datasets.ImageFolder(root=target_data_path,transform=transforms)
 
 dataloader_source = torch.utils.data.DataLoader(
     dataset=source_data,
@@ -68,6 +67,7 @@ dataloader_target = torch.utils.data.DataLoader(
 )
 
 my_net = DSN()
+
 
 def exp_lr_scheduler(optimizer, step, init_lr=lr, lr_decay_step=lr_decay_step, step_decay_weight=step_decay_weight):
 
@@ -110,7 +110,7 @@ len_dataloader = min(len(dataloader_source), len(dataloader_target))
 dann_epoch = np.floor(active_domain_loss_step / len_dataloader * 1.0)
 
 current_step = 0
-for epoch in xrange(n_epoch):
+for epoch in range(n_epoch):
 
     data_source_iter = iter(dataloader_source)
     data_target_iter = iter(dataloader_target)
