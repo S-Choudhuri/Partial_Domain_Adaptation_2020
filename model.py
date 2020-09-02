@@ -1,160 +1,269 @@
-import torch
-import torch.nn as nn
-from functions import ReverseLayerF
-from torchvision import models
+SEED = 7
+import os
+import sys
+import argparse
+import random
+import numpy as np
+import torchvision
+from tensorflow import set_random_seed
+import torch.backends.cudnn as cudnn
+import torch.optim as optim
+import torch.utils.data
+from torch.autograd import Variable
+from torchvision import datasets
+from torchvision import transforms
+from model import *
+from optimizer import *
+from data_loader import *
+from loss_cal import *
+from functions import *
 
-def convrelu(in_channels, out_channels, kernel, padding):
-    return nn.Sequential(
-        nn.Conv2d(in_channels, out_channels, kernel, padding=padding),
-        nn.ReLU(inplace=True),
-    )
+os.environ['PYTHONHASHSEED']=str(SEED)
+np.random.seed(SEED)
+set_random_seed(SEED)
+random.seed(SEED)
 
+cuda = True
+cudnn.benchmark = True
+lr = 1e-2
+batch_size = 32
+image_size = 224
+n_epoch = 100
+step_decay_weight = 0.95
+lr_decay_step = 20000
+active_domain_loss_step = 10000
+weight_decay = 1e-6
+alpha_weight = 0.01
+beta_weight = 0.075
+gamma_weight = 0.25
+momentum = 0.9
 
+source_data_path = "./Data/Office/domain_adaptation_images/amazon/images/"
+target_data_path = "./Data/Office/domain_adaptation_images/dslr/images/"
 
-class DSN(nn.Module):
-    def __init__(self, code_size=100, n_class=10):
-        super(DSN, self).__init__()
-        self.code_size = code_size
+transforms = transforms.Compose([
+    transforms.Resize(224),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5, 0.5, 0.5],
+                    std=[0.5, 0.5, 0.5] )
+    ])
 
-        ##########################################
-        # private source encoder
-        ##########################################
+source_data = torchvision.datasets.ImageFolder(root=source_data_path,transform=transforms)
 
-        self.base_model = models.resnet50(pretrained=True)
-        self.base_layers=list(self.base_model.children())[:-1]
-        self.source_encoder_conv = nn.Sequential(*self.base_layers)
+target_data = torchvision.datasets.ImageFolder(root=target_data_path,transform=transforms)
 
-        self.source_encoder_fc = nn.Sequential()
-        self.source_encoder_fc.add_module('fc_pse', nn.Linear(in_features=512, out_features=code_size))
-        self.source_encoder_fc.add_module('ac_pse', nn.ReLU(True))
+dataloader_source = torch.utils.data.DataLoader(
+    dataset=source_data,
+    batch_size=batch_size,
+    shuffle=True,
+    num_workers=4
+)
 
-        #########################################
-        # private target encoder
-        #########################################
+dataloader_target = torch.utils.data.DataLoader(
+    dataset=target_data,
+    batch_size=batch_size,
+    shuffle=True,
+    num_workers=4
+)
 
-        self.base_model2 = models.resnet50(pretrained=True)
-        self.base_layers2=list(self.base_model2.children())[:-1]
-        self.target_encoder_conv = nn.Sequential(*self.base_layers2)
-        
-
-        self.target_encoder_fc = nn.Sequential()
-        self.target_encoder_fc.add_module('fc_pte', nn.Linear(in_features=512, out_features=code_size))
-        self.target_encoder_fc.add_module('ac_pte', nn.ReLU(True))
-
-        ################################
-        # shared encoder (dann_mnist)
-        ################################
-
-
-        self.base_model3 = models.resnet50(pretrained=True)
-        self.base_layers3=list(self.base_model3.children())[:-1]
-        self.shared_encoder_conv = nn.Sequential(*self.base_layers3)
-        
-        self.shared_encoder_fc = nn.Sequential()
-        self.shared_encoder_fc.add_module('fc_pshe', nn.Linear(in_features=512, out_features=code_size))
-        self.shared_encoder_fc.add_module('ac_pshe', nn.ReLU(True))
-
-        # classify 10 numbers
-        self.shared_encoder_pred_class = nn.Sequential()
-        self.shared_encoder_pred_class.add_module('fc_she4', nn.Linear(in_features=code_size, out_features=100))
-        self.shared_encoder_pred_class.add_module('relu_she4', nn.ReLU(True))
-        self.shared_encoder_pred_class.add_module('fc_she5', nn.Linear(in_features=100, out_features=n_class))
-
-        self.shared_encoder_pred_domain = nn.Sequential()
-        self.shared_encoder_pred_domain.add_module('fc_se6', nn.Linear(in_features=100, out_features=100))
-        self.shared_encoder_pred_domain.add_module('relu_se6', nn.ReLU(True))
-
-        # classify two domain
-        self.shared_encoder_pred_domain.add_module('fc_se7', nn.Linear(in_features=100, out_features=2))
-
-        ######################################
-        # shared decoder (small decoder)
-        ######################################
-
-        self.shared_decoder_fc = nn.Sequential()
-        self.shared_decoder_fc.add_module('fc_sd1', nn.Linear(in_features=code_size, out_features=588))
-        self.shared_decoder_fc.add_module('relu_sd1', nn.ReLU(True))
-
-        self.shared_decoder_conv = nn.Sequential()
-        self.shared_decoder_conv.add_module('conv_sd2', nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3,
-                                                                  padding=1))
-        self.shared_decoder_conv.add_module('relu_sd2', nn.ReLU())
-
-        self.shared_decoder_conv.add_module('us_sd2_u', nn.Upsample(scale_factor=2))
-
-        self.shared_decoder_conv.add_module('conv_sd3', nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3,
-                                                                  padding=1))
-        self.shared_decoder_conv.add_module('relu_sd3', nn.ReLU())
-
-        self.shared_decoder_conv.add_module('us_sd4', nn.Upsample(scale_factor=2))
-
-        self.shared_decoder_conv.add_module('conv_sd5', nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3,
-                                                                  padding=1))
-        self.shared_decoder_conv.add_module('relu_sd5', nn.ReLU(True))
-
-        self.shared_decoder_conv.add_module('relu_sd5_u', nn.Upsample(scale_factor=2))
-
-        self.shared_decoder_conv.add_module('conv_sd6', nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3,
-                                                                  padding=1))
-
-        self.shared_decoder_conv.add_module('relu_sd6_u', nn.Upsample(scale_factor=2))
-
-        self.shared_decoder_conv.add_module('conv_sd7', nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3,
-                                                                  padding=1))
-        #self.shared_decoder_conv.add_module('relu_sd6_u', nn.Upsample(scale_factor=2))
+my_net = DSN()
 
 
-    def forward(self, input_data, mode, rec_scheme, p=0.0):
+def exp_lr_scheduler(optimizer, step, init_lr=lr, lr_decay_step=lr_decay_step, step_decay_weight=step_decay_weight):
 
-        result = []
+    # Decay learning rate by a factor of step_decay_weight every lr_decay_step
+    current_lr = init_lr * (step_decay_weight ** (step / lr_decay_step))
 
-        if mode == 'source':
+    if step % lr_decay_step == 0:
+        print ('learning rate is set to %f' % current_lr)
 
-            # source private encoder
-            private_feat = self.source_encoder_conv(input_data)
-            private_feat = private_feat.view(-1, 512)
-            private_code = self.source_encoder_fc(private_feat)
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = current_lr
 
-        elif mode == 'target':
+    return optimizer
 
-            # target private encoder
-            private_feat = self.target_encoder_conv(input_data)
-            private_feat = private_feat.view(-1, 512)
-            private_code = self.target_encoder_fc(private_feat)
+optimizer = opt_(my_net.parameters(), lr, momentum, weight_decay)
 
-        result.append(private_code)
+loss_classification = torch.nn.CrossEntropyLoss()
+loss_recon1 = MSE()
+loss_recon2 = SIMSE()
+loss_diff = DiffLoss()
+loss_similarity = WLoss()
 
-        # shared encoder
-        shared_feat = self.shared_encoder_conv(input_data)
-        shared_feat = shared_feat.view(-1, 512)
-        shared_code = self.shared_encoder_fc(shared_feat)
-        result.append(shared_code)
+if cuda:
+    my_net = my_net.cuda()
+    loss_classification = loss_classification.cuda()
+    loss_recon1 = loss_recon1.cuda()
+    loss_recon2 = loss_recon2.cuda()
+    loss_diff = loss_diff.cuda()
+    loss_similarity = loss_similarity.cuda()
 
-        reversed_shared_code = ReverseLayerF.apply(shared_code, p)
-        domain_label = self.shared_encoder_pred_domain(reversed_shared_code)
-        result.append(domain_label)
+for p in my_net.parameters():
+    p.requires_grad = True
 
-        if mode == 'source':
-            class_label = self.shared_encoder_pred_class(shared_code)
-            result.append(class_label)
-
-        # shared decoder
-
-        if rec_scheme == 'share':
-            union_code = shared_code
-        elif rec_scheme == 'all':
-            union_code = private_code + shared_code
-        elif rec_scheme == 'private':
-            union_code = private_code
-
-        rec_vec = self.shared_decoder_fc(union_code)
-        rec_vec = rec_vec.view(-1, 3, 14, 14)
-        rec_code = self.shared_decoder_conv(rec_vec)
-        result.append(rec_code)
-
-        return result
+#############################
+# training network          #
+#############################
 
 
+len_dataloader = min(len(dataloader_source), len(dataloader_target))
+dann_epoch = np.floor(active_domain_loss_step / len_dataloader * 1.0)
 
+current_step = 0
+for epoch in range(n_epoch):
 
+    data_source_iter = iter(dataloader_source)
+    data_target_iter = iter(dataloader_target)
+
+    i = 0
+
+    while i < len_dataloader:
+
+        ###################################
+        # target data training            #
+        ###################################
+
+        data_target = data_target_iter.next()
+        t_img, t_label = data_target
+
+        my_net.zero_grad()
+        loss = 0
+        batch_size = len(t_label)
+
+        input_img = torch.FloatTensor(batch_size, 3, image_size, image_size)
+        class_label = torch.LongTensor(batch_size)
+        domain_label = torch.ones(batch_size)
+        domain_label = domain_label.long()
+
+        if cuda:
+            t_img = t_img.cuda()
+            t_label = t_label.cuda()
+            input_img = input_img.cuda()
+            class_label = class_label.cuda()
+            domain_label = domain_label.cuda()
+
+        input_img.resize_as_(t_img).copy_(t_img)
+        class_label.resize_as_(t_label).copy_(t_label)
+        target_inputv_img = Variable(input_img)
+        target_classv_label = Variable(class_label)
+        target_domainv_label = Variable(domain_label)
+
+        '''if current_step > active_domain_loss_step:
+                                    p = float(i + (epoch - dann_epoch) * len_dataloader / (n_epoch - dann_epoch) / len_dataloader)
+                                    p = 2. / (1. + np.exp(-10 * p)) - 1
+                        
+                                    # activate domain loss
+                                    result = my_net(input_data=target_inputv_img, mode='target', rec_scheme='all', p=p)
+                                    target_privte_code, target_share_code, target_domain_label, target_rec_code = result
+                                    target_dann = gamma_weight/2.0 * loss_similarity(source_domain_label, target_domain_label)
+                                    loss += target_dann
+                                else:
+                                    target_dann = Variable(torch.zeros(1).float().cuda())
+                                    result = my_net(input_data=target_inputv_img, mode='target', rec_scheme='all')
+                                    target_privte_code, target_share_code, _, target_rec_code = result'''
+
+        target_diff= beta_weight * loss_diff(target_privte_code, target_share_code)
+        loss += target_diff
+        target_mse = alpha_weight * loss_recon1(target_rec_code, target_inputv_img)
+        loss += target_mse
+        target_simse = alpha_weight * loss_recon2(target_rec_code, target_inputv_img)
+        loss += target_simse
+
+        loss.backward()
+        optimizer.step()
+
+        ###################################
+        # source data training            #
+        ###################################
+
+        data_source = data_source_iter.next()
+        s_img, s_label = data_source
+
+        my_net.zero_grad()
+        batch_size = len(s_label)
+
+        input_img = torch.FloatTensor(batch_size, 3, image_size, image_size)
+        class_label = torch.LongTensor(batch_size)
+        domain_label = torch.zeros(batch_size)
+        domain_label = domain_label.long()
+
+        loss = 0
+
+        if cuda:
+            s_img = s_img.cuda()
+            s_label = s_label.cuda()
+            input_img = input_img.cuda()
+            class_label = class_label.cuda()
+            domain_label = domain_label.cuda()
+
+        input_img.resize_as_(input_img).copy_(s_img)
+        class_label.resize_as_(s_label).copy_(s_label)
+        source_inputv_img = Variable(input_img)
+        source_classv_label = Variable(class_label)
+        source_domainv_label = Variable(domain_label)
+
+        '''if current_step > active_domain_loss_step:
+                        
+                                    # activate domain loss
+                        
+                                    result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all', p=p)
+                                    source_privte_code, source_share_code, source_domain_label, source_class_label, source_rec_code = result
+                                    source_dann = gamma_weight/2.0 * loss_similarity(source_domain_label, target_domain_label)
+                                    loss += source_dann
+                                else:
+                                    source_dann = Variable(torch.zeros(1).float().cuda())
+                                    result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all')
+                                    source_privte_code, source_share_code, _, source_class_label, source_rec_code = result'''
+
+        source_classification = loss_classification(source_class_label, source_classv_label)
+        loss += source_classification
+
+        source_diff = beta_weight * loss_diff(source_privte_code, source_share_code)
+        loss += source_diff
+        source_mse = alpha_weight * loss_recon1(source_rec_code, source_inputv_img)
+        loss += source_mse
+        source_simse = alpha_weight * loss_recon2(source_rec_code, source_inputv_img)
+        loss += source_simse
+
+        loss.backward()
+
+        loss = 0
+
+        if current_step > active_domain_loss_step:
+            p = float(i + (epoch - dann_epoch) * len_dataloader / (n_epoch - dann_epoch) / len_dataloader)
+            p = 2. / (1. + np.exp(-10 * p)) - 1
+
+            # activate domain loss
+            result = my_net(input_data=target_inputv_img, mode='target', rec_scheme='all', p=p)
+            target_privte_code, target_share_code, target_domain_label, target_rec_code = result
+            result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all', p=p)
+            source_privte_code, source_share_code, source_domain_label, source_class_label, source_rec_code = result
+            dann = gamma_weight/2.0 * loss_similarity(source_domain_label, target_domain_label)
+            loss += dann
+        else:
+            dann = Variable(torch.zeros(1).float().cuda())
+            result = my_net(input_data=target_inputv_img, mode='target', rec_scheme='all')
+            target_privte_code, target_share_code, _, target_rec_code = result
+            result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all')
+            source_privte_code, source_share_code, _, source_class_label, source_rec_code = result
+
+        loss.backward()
+        optimizer = exp_lr_scheduler(optimizer=optimizer, step=current_step)
+        optimizer.step()
+
+        i += 1
+        current_step += 1
+    print ('source_classification: %f, source_dann: %f, source_diff: %f, ' \
+          'source_mse: %f, source_simse: %f, target_dann: %f, target_diff: %f, ' \
+          'target_mse: %f, target_simse: %f' \
+          % (source_classification.data.cpu().numpy(), source_dann.data.cpu().numpy(), source_diff.data.cpu().numpy(),
+             source_mse.data.cpu().numpy(), source_simse.data.cpu().numpy(), target_dann.data.cpu().numpy(),
+             target_diff.data.cpu().numpy(),target_mse.data.cpu().numpy(), target_simse.data.cpu().numpy()))
+
+    # print 'step: %d, loss: %f' % (current_step, loss.cpu().data.numpy())
+    #torch.save(my_net.state_dict(), model_root + '/dsn_mnist_mnistm_epoch_' + str(epoch) + '.pth')
+    #test(epoch=epoch, name='mnist')
+    #test(epoch=epoch, name='mnist_m')
+
+print ('done')
 
