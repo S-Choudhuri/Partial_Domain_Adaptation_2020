@@ -88,7 +88,7 @@ loss_classification = torch.nn.CrossEntropyLoss()
 loss_recon1 = MSE()
 loss_recon2 = SIMSE()
 loss_diff = DiffLoss()
-loss_similarity = torch.nn.CrossEntropyLoss()
+loss_similarity = WLoss()
 
 if cuda:
     my_net = my_net.cuda()
@@ -148,19 +148,19 @@ for epoch in range(n_epoch):
         target_classv_label = Variable(class_label)
         target_domainv_label = Variable(domain_label)
 
-        if current_step > active_domain_loss_step:
-            p = float(i + (epoch - dann_epoch) * len_dataloader / (n_epoch - dann_epoch) / len_dataloader)
-            p = 2. / (1. + np.exp(-10 * p)) - 1
-
-            # activate domain loss
-            result = my_net(input_data=target_inputv_img, mode='target', rec_scheme='all', p=p)
-            target_privte_code, target_share_code, target_domain_label, target_rec_code = result
-            target_dann = gamma_weight * loss_similarity(target_domain_label, target_domainv_label)
-            loss += target_dann
-        else:
-            target_dann = Variable(torch.zeros(1).float().cuda())
-            result = my_net(input_data=target_inputv_img, mode='target', rec_scheme='all')
-            target_privte_code, target_share_code, _, target_rec_code = result
+        '''if current_step > active_domain_loss_step:
+                                    p = float(i + (epoch - dann_epoch) * len_dataloader / (n_epoch - dann_epoch) / len_dataloader)
+                                    p = 2. / (1. + np.exp(-10 * p)) - 1
+                        
+                                    # activate domain loss
+                                    result = my_net(input_data=target_inputv_img, mode='target', rec_scheme='all', p=p)
+                                    target_privte_code, target_share_code, target_domain_label, target_rec_code = result
+                                    target_dann = gamma_weight/2.0 * loss_similarity(source_domain_label, target_domain_label)
+                                    loss += target_dann
+                                else:
+                                    target_dann = Variable(torch.zeros(1).float().cuda())
+                                    result = my_net(input_data=target_inputv_img, mode='target', rec_scheme='all')
+                                    target_privte_code, target_share_code, _, target_rec_code = result'''
 
         target_diff= beta_weight * loss_diff(target_privte_code, target_share_code)
         loss += target_diff
@@ -202,18 +202,18 @@ for epoch in range(n_epoch):
         source_classv_label = Variable(class_label)
         source_domainv_label = Variable(domain_label)
 
-        if current_step > active_domain_loss_step:
-
-            # activate domain loss
-
-            result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all', p=p)
-            source_privte_code, source_share_code, source_domain_label, source_class_label, source_rec_code = result
-            source_dann = gamma_weight * loss_similarity(source_domain_label, source_domainv_label)
-            loss += source_dann
-        else:
-            source_dann = Variable(torch.zeros(1).float().cuda())
-            result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all')
-            source_privte_code, source_share_code, _, source_class_label, source_rec_code = result
+        '''if current_step > active_domain_loss_step:
+                        
+                                    # activate domain loss
+                        
+                                    result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all', p=p)
+                                    source_privte_code, source_share_code, source_domain_label, source_class_label, source_rec_code = result
+                                    source_dann = gamma_weight/2.0 * loss_similarity(source_domain_label, target_domain_label)
+                                    loss += source_dann
+                                else:
+                                    source_dann = Variable(torch.zeros(1).float().cuda())
+                                    result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all')
+                                    source_privte_code, source_share_code, _, source_class_label, source_rec_code = result'''
 
         source_classification = loss_classification(source_class_label, source_classv_label)
         loss += source_classification
@@ -224,6 +224,28 @@ for epoch in range(n_epoch):
         loss += source_mse
         source_simse = alpha_weight * loss_recon2(source_rec_code, source_inputv_img)
         loss += source_simse
+
+        loss.backward()
+
+        loss = 0
+
+        if current_step > active_domain_loss_step:
+            p = float(i + (epoch - dann_epoch) * len_dataloader / (n_epoch - dann_epoch) / len_dataloader)
+            p = 2. / (1. + np.exp(-10 * p)) - 1
+
+            # activate domain loss
+            result = my_net(input_data=target_inputv_img, mode='target', rec_scheme='all', p=p)
+            target_privte_code, target_share_code, target_domain_label, target_rec_code = result
+            result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all', p=p)
+            source_privte_code, source_share_code, source_domain_label, source_class_label, source_rec_code = result
+            dann = gamma_weight/2.0 * loss_similarity(source_domain_label, target_domain_label)
+            loss += dann
+        else:
+            dann = Variable(torch.zeros(1).float().cuda())
+            result = my_net(input_data=target_inputv_img, mode='target', rec_scheme='all')
+            target_privte_code, target_share_code, _, target_rec_code = result
+            result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all')
+            source_privte_code, source_share_code, _, source_class_label, source_rec_code = result
 
         loss.backward()
         optimizer = exp_lr_scheduler(optimizer=optimizer, step=current_step)
