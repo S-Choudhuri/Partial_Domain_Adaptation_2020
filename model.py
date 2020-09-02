@@ -238,10 +238,10 @@ for epoch in range(n_epoch):
             target_privte_code, target_share_code, target_domain_label, target_rec_code = result
             result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all', p=p)
             source_privte_code, source_share_code, source_domain_label, source_class_label, source_rec_code = result
-            dann = gamma_weight * loss_similarity(source_domain_label, target_domain_label)
-            loss += dann
+            dann_l = gamma_weight * loss_similarity(source_domain_label, target_domain_label)
+            loss += dann_l
         else:
-            dann = Variable(torch.zeros(1).float().cuda())
+            dann_l = Variable(torch.zeros(1).float().cuda())
             result = my_net(input_data=target_inputv_img, mode='target', rec_scheme='all')
             target_privte_code, target_share_code, _, target_rec_code = result
             result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all')
