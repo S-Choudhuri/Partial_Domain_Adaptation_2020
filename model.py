@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from functions import ReverseLayerF
+from loss_weights import ReverseLayerF
 from torchvision import models
 
 def convrelu(in_channels, out_channels, kernel, padding):
