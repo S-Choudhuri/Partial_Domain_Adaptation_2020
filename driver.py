@@ -161,7 +161,12 @@ for epoch in range(n_epoch):
                                     target_dann = Variable(torch.zeros(1).float().cuda())
                                     result = my_net(input_data=target_inputv_img, mode='target', rec_scheme='all')
                                     target_privte_code, target_share_code, _, target_rec_code = result'''
-
+        p = float(i + (epoch - dann_epoch) * len_dataloader / (n_epoch - dann_epoch) / len_dataloader)
+        p = 2. / (1. + np.exp(-10 * p)) - 1
+        
+        result = my_net(input_data=target_inputv_img, mode='target', rec_scheme='all', p=p)
+        target_privte_code, target_share_code, target_domain_label, target_rec_code = result
+        
         target_diff= beta_weight * loss_diff(target_privte_code, target_share_code)
         loss += target_diff
         target_mse = alpha_weight * loss_recon1(target_rec_code, target_inputv_img)
@@ -214,7 +219,10 @@ for epoch in range(n_epoch):
                                     source_dann = Variable(torch.zeros(1).float().cuda())
                                     result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all')
                                     source_privte_code, source_share_code, _, source_class_label, source_rec_code = result'''
-
+        
+        result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all', p=p)
+        source_privte_code, source_share_code, source_domain_label, source_class_label, source_rec_code = result
+        
         source_classification = loss_classification(source_class_label, source_classv_label)
         loss += source_classification
 
@@ -226,9 +234,12 @@ for epoch in range(n_epoch):
         loss += source_simse
 
         loss.backward()
+        optimizer.step()
 
         loss = 0
-
+        dann = gamma_weight/2.0 * loss_similarity(source_domain_label, target_domain_label)
+        loss += dann
+        '''
         if current_step > active_domain_loss_step:
             p = float(i + (epoch - dann_epoch) * len_dataloader / (n_epoch - dann_epoch) / len_dataloader)
             p = 2. / (1. + np.exp(-10 * p)) - 1
@@ -246,7 +257,7 @@ for epoch in range(n_epoch):
             target_privte_code, target_share_code, _, target_rec_code = result
             result = my_net(input_data=source_inputv_img, mode='source', rec_scheme='all')
             source_privte_code, source_share_code, _, source_class_label, source_rec_code = result
-
+        '''
         loss.backward()
         optimizer = exp_lr_scheduler(optimizer=optimizer, step=current_step)
         optimizer.step()
