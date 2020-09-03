@@ -1,6 +1,22 @@
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.autograd import Function
+
+
+class ReverseLayerF(Function):
+
+    @staticmethod
+    def forward(ctx, x, p):
+        ctx.p = p
+
+        return x.view_as(x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        output = grad_output.neg() * ctx.p
+
+        return output, None
 
 def weight_comp(y):
     cw = np.sum(y, axis = 0)
