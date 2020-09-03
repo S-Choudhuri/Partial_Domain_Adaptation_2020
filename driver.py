@@ -5,7 +5,7 @@ import argparse
 import random
 import numpy as np
 import torchvision
-from tensorflow import set_random_seed
+import tensorflow as tf
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data
@@ -19,9 +19,9 @@ from loss_cal import *
 from functions import *
 
 os.environ['PYTHONHASHSEED']=str(SEED)
-np.random.seed(SEED)
-set_random_seed(SEED)
-random.seed(SEED)
+#np.random.seed(SEED)
+#set_random_seed(SEED)
+tf.random.set_seed(SEED)
 
 cuda = True
 cudnn.benchmark = True
